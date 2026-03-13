@@ -31,7 +31,7 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 PYTHON_EXECUTABLE = os.environ.get("AUTOFIGURE_PYTHON") or sys.executable
 
-DEFAULT_SAM_PROMPT = "icon,person,animal,robot"
+DEFAULT_SAM_PROMPT = "icon,person,robot,animal"
 DEFAULT_PLACEHOLDER_MODE = "label"
 DEFAULT_MERGE_THRESHOLD = 0.01
 
@@ -41,12 +41,28 @@ SVG_EDIT_CANDIDATES = [
     ("vendor/svg-edit/index.html", WEB_DIR / "vendor" / "svg-edit" / "index.html"),
 ]
 
+SENSITIVE_CMD_FLAGS = {"--api_key", "--sam_api_key"}
+
 
 def _resolve_svg_edit_path() -> tuple[bool, str | None]:
     for rel, path in SVG_EDIT_CANDIDATES:
         if path.is_file():
             return True, f"/{rel}"
     return False, None
+
+
+def _redact_cmd_args(cmd: list[str]) -> str:
+    redacted: list[str] = []
+    hide_next = False
+    for token in cmd:
+        if hide_next:
+            redacted.append("***")
+            hide_next = False
+            continue
+        redacted.append(token)
+        if token in SENSITIVE_CMD_FLAGS:
+            hide_next = True
+    return " ".join(redacted)
 
 
 @dataclass
@@ -89,6 +105,11 @@ class RunRequest(BaseModel):
 app = FastAPI()
 
 JOBS: dict[str, Job] = {}
+
+
+@app.get("/healthz")
+def healthz() -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 
 @app.get("/api/config")
@@ -155,7 +176,7 @@ def run_job(req: RunRequest) -> JSONResponse:
 
     log_path = output_dir / "run.log"
     log_path.write_text(
-        f"[meta] python={PYTHON_EXECUTABLE}\n[meta] cmd={' '.join(cmd)}\n",
+        f"[meta] python={PYTHON_EXECUTABLE}\n[meta] cmd={_redact_cmd_args(cmd)}\n",
         encoding="utf-8",
     )
 

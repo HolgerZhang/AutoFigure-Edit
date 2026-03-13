@@ -72,6 +72,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
 
@@ -91,17 +92,17 @@ PROVIDER_CONFIGS = {
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
         "default_image_model": "google/gemini-3-pro-image-preview",
-        "default_svg_model": "google/gemini-3-pro-preview",
+        "default_svg_model": "google/gemini-3.1-pro-preview",
     },
     "bianxie": {
         "base_url": "https://api.bianxie.ai/v1",
         "default_image_model": "gemini-3-pro-image-preview",
-        "default_svg_model": "gemini-3-pro-preview",
+        "default_svg_model": "gemini-3.1-pro-preview",
     },
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "default_image_model": "gemini-3-pro-image-preview",
-        "default_svg_model": "gemini-2.5-pro",
+        "default_svg_model": "gemini-3.1-pro",
     },
 }
 
@@ -111,7 +112,10 @@ GEMINI_DEFAULT_IMAGE_SIZE = "4K"
 
 # SAM3 API config
 SAM3_FAL_API_URL = "https://fal.run/fal-ai/sam-3/image"
-SAM3_ROBOFLOW_API_URL = "https://serverless.roboflow.com/sam3/concept_segment"
+SAM3_ROBOFLOW_API_URL = os.environ.get(
+    "ROBOFLOW_API_URL",
+    "https://serverless.roboflow.com/sam3/concept_segment",
+)
 SAM3_API_TIMEOUT = 300
 
 # Step 1 reference image settings (overridden by CLI)
@@ -365,6 +369,94 @@ def _get_openrouter_api_url(base_url: str) -> str:
     return base_url
 
 
+def _extract_openrouter_message_text(message: Any) -> Optional[str]:
+    """尽可能从 OpenRouter message 中提取文本，兼容 string/list/object 多种 content 形态"""
+    if not isinstance(message, dict):
+        return None
+
+    def _collect_from_part(part: Any, out: list[str]) -> None:
+        if isinstance(part, str):
+            text = part.strip()
+            if text:
+                out.append(text)
+            return
+
+        if not isinstance(part, dict):
+            return
+
+        for key in ("text", "content", "value"):
+            value = part.get(key)
+            if isinstance(value, str) and value.strip():
+                out.append(value.strip())
+
+        nested = part.get("content")
+        if isinstance(nested, list):
+            for item in nested:
+                _collect_from_part(item, out)
+
+    content = message.get("content")
+
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+
+    if isinstance(content, dict):
+        chunks: list[str] = []
+        _collect_from_part(content, chunks)
+        if chunks:
+            return "\n".join(chunks)
+
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for part in content:
+            _collect_from_part(part, chunks)
+        if chunks:
+            return "\n".join(chunks)
+
+    for key in ("output_text", "text"):
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return None
+
+
+def _summarize_openrouter_choice(choice: Any) -> str:
+    """构造可读的 OpenRouter choice 摘要，便于定位空响应问题"""
+    if not isinstance(choice, dict):
+        return f"invalid choice type={type(choice).__name__}"
+
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        return (
+            f"finish_reason={choice.get('finish_reason')}, "
+            f"message_type={type(message).__name__}"
+        )
+
+    content = message.get("content")
+    content_type = type(content).__name__
+    if isinstance(content, str):
+        content_size = len(content)
+    elif isinstance(content, list):
+        content_size = len(content)
+    elif isinstance(content, dict):
+        content_size = len(content.keys())
+    else:
+        content_size = 0
+
+    refusal = message.get("refusal")
+    refusal_preview = repr(refusal)
+    if len(refusal_preview) > 220:
+        refusal_preview = refusal_preview[:220] + "..."
+
+    return (
+        f"finish_reason={choice.get('finish_reason')}, "
+        f"message_keys={sorted(message.keys())}, "
+        f"content_type={content_type}, "
+        f"content_size={content_size}, "
+        f"refusal={refusal_preview}"
+    )
+
+
 def _call_openrouter_text(
     prompt: str,
     api_key: str,
@@ -402,7 +494,11 @@ def _call_openrouter_text(
     if not choices:
         return None
 
-    return choices[0].get('message', {}).get('content', '')
+    message = choices[0].get('message', {})
+    text = _extract_openrouter_message_text(message)
+    if text:
+        return text
+    return None
 
 
 def _call_openrouter_multimodal(
@@ -438,24 +534,62 @@ def _call_openrouter_multimodal(
         'stream': False
     }
 
-    response = requests.post(api_url, headers=headers, json=payload, timeout=300)
+    retry_env = os.environ.get("OPENROUTER_MULTIMODAL_RETRIES", "3")
+    delay_env = os.environ.get("OPENROUTER_MULTIMODAL_RETRY_DELAY", "1.5")
+    try:
+        retry_count = max(1, int(retry_env))
+    except ValueError:
+        retry_count = 3
+    try:
+        retry_delay = max(0.0, float(delay_env))
+    except ValueError:
+        retry_delay = 1.5
 
-    if response.status_code != 200:
-        raise Exception(f'OpenRouter API 错误: {response.status_code} - {response.text[:500]}')
+    last_error: Optional[Exception] = None
+    for attempt in range(1, retry_count + 1):
+        try:
+            response = requests.post(api_url, headers=headers, json=payload, timeout=300)
 
-    result = response.json()
+            if response.status_code != 200:
+                raise Exception(f'OpenRouter API 错误: {response.status_code} - {response.text[:500]}')
 
-    if 'error' in result:
-        error_msg = result.get('error', {})
-        if isinstance(error_msg, dict):
-            error_msg = error_msg.get('message', str(error_msg))
-        raise Exception(f'OpenRouter API 错误: {error_msg}')
+            result = response.json()
 
-    choices = result.get('choices', [])
-    if not choices:
-        return None
+            if 'error' in result:
+                error_msg = result.get('error', {})
+                if isinstance(error_msg, dict):
+                    error_msg = error_msg.get('message', str(error_msg))
+                raise Exception(f'OpenRouter API 错误: {error_msg}')
 
-    return choices[0].get('message', {}).get('content', '')
+            choices = result.get('choices', [])
+            if not choices:
+                raise RuntimeError("OpenRouter 返回 choices 为空")
+
+            message = choices[0].get('message', {})
+            text = _extract_openrouter_message_text(message)
+            if text:
+                return text
+
+            choice_summary = _summarize_openrouter_choice(choices[0])
+            raise RuntimeError(
+                "OpenRouter 多模态响应没有可解析文本内容。"
+                f" model={model}, summary={choice_summary}"
+            )
+        except Exception as e:
+            last_error = e
+            if attempt < retry_count:
+                sleep_s = retry_delay * (2 ** (attempt - 1))
+                print(
+                    f"OpenRouter 多模态请求失败（尝试 {attempt}/{retry_count}）：{e}，"
+                    f"{sleep_s:.1f}s 后重试..."
+                )
+                time.sleep(sleep_s)
+                continue
+            break
+
+    if last_error is not None:
+        raise last_error
+    return None
 
 
 def _call_openrouter_image_generation(
@@ -484,7 +618,8 @@ def _call_openrouter_image_generation(
     payload = {
         'model': model,
         'messages': messages,
-        'modalities': ['image', 'text'],
+        # 对 OpenRouter 的 Gemini 图像模型，强制 image-only 可显著降低“返回纯文本无图片”的概率
+        'modalities': ['image'],
         'stream': False
     }
 
@@ -501,35 +636,145 @@ def _call_openrouter_image_generation(
             error_msg = error_msg.get('message', str(error_msg))
         raise Exception(f'OpenRouter API 错误: {error_msg}')
 
-    # OpenRouter 返回图片在 message.images[] 数组中
-    choices = result.get('choices', [])
-    if not choices:
+    def _extract_data_url_payload(data_url: str) -> Optional[str]:
+        match = re.match(r"^data:image/[^;]+;base64,(.+)$", data_url, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        return re.sub(r"\s+", "", match.group(1))
+
+    def _decode_base64_image(image_b64: str) -> Optional[Image.Image]:
+        if not image_b64:
+            return None
+        try:
+            b64 = re.sub(r"\s+", "", image_b64)
+            padding = len(b64) % 4
+            if padding:
+                b64 += "=" * (4 - padding)
+            image_data = base64.b64decode(b64)
+            image = Image.open(io.BytesIO(image_data))
+            image.load()
+            return image
+        except Exception:
+            return None
+
+    def _load_remote_image(image_url: str) -> Optional[Image.Image]:
+        try:
+            resp = requests.get(image_url, timeout=120)
+            if resp.status_code != 200 or not resp.content:
+                return None
+            image = Image.open(io.BytesIO(resp.content))
+            image.load()
+            return image
+        except Exception:
+            return None
+
+    def _extract_image_url(value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            if isinstance(value.get("url"), str):
+                return value["url"]
+            if "image_url" in value:
+                return _extract_image_url(value.get("image_url"))
         return None
 
+    def _try_parse_image_candidate(candidate: Any) -> Optional[Image.Image]:
+        if isinstance(candidate, dict):
+            # OpenAI/OpenRouter 常见图片字段
+            for key in ("b64_json", "base64", "data"):
+                raw = candidate.get(key)
+                if isinstance(raw, str):
+                    parsed = _decode_base64_image(raw)
+                    if parsed is not None:
+                        return parsed
+            if "image_url" in candidate:
+                parsed = _try_parse_image_candidate(candidate.get("image_url"))
+                if parsed is not None:
+                    return parsed
+            if "url" in candidate:
+                parsed = _try_parse_image_candidate(candidate.get("url"))
+                if parsed is not None:
+                    return parsed
+            return None
+
+        if not isinstance(candidate, str):
+            return None
+
+        candidate = candidate.strip()
+        if not candidate:
+            return None
+
+        if candidate.startswith("data:image/"):
+            b64_payload = _extract_data_url_payload(candidate)
+            if b64_payload:
+                return _decode_base64_image(b64_payload)
+            return None
+
+        if candidate.startswith("http://") or candidate.startswith("https://"):
+            return _load_remote_image(candidate)
+
+        # 极少数场景服务会直接返回纯 base64
+        return _decode_base64_image(candidate)
+
+    def _extract_markdown_image_urls(text: str) -> list[str]:
+        urls: list[str] = []
+        for match in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", text):
+            urls.append(match.group(1).strip())
+        for match in re.finditer(r"data:image/[^;]+;base64,[A-Za-z0-9+/=\s]+", text, flags=re.IGNORECASE):
+            urls.append(match.group(0).strip())
+        return urls
+
+    choices = result.get('choices', [])
+    if not choices:
+        raise RuntimeError("OpenRouter 返回中没有 choices，无法解析生图结果。")
+
     message = choices[0].get('message', {})
-    images = message.get('images', [])
+    candidates: list[Any] = []
 
-    if images and len(images) > 0:
-        first_image = images[0]
+    images = message.get("images")
+    if isinstance(images, list):
+        candidates.extend(images)
+    elif images is not None:
+        candidates.append(images)
 
-        if isinstance(first_image, dict):
-            image_url_obj = first_image.get('image_url', {})
-            if isinstance(image_url_obj, dict):
-                image_url = image_url_obj.get('url', '')
-            else:
-                image_url = str(image_url_obj)
-        else:
-            image_url = str(first_image)
+    content = message.get("content")
+    if isinstance(content, list):
+        candidates.extend(content)
+    elif isinstance(content, str):
+        candidates.extend(_extract_markdown_image_urls(content))
 
-        if image_url.startswith('data:image/'):
-            pattern = r'data:image/(png|jpeg|jpg|webp);base64,(.+)'
-            match = re.match(pattern, image_url)
-            if match:
-                image_base64 = match.group(2)
-                image_data = base64.b64decode(image_base64)
-                return Image.open(io.BytesIO(image_data))
+    # 某些中间层会把图片放到顶层字段
+    top_images = result.get("images")
+    if isinstance(top_images, list):
+        candidates.extend(top_images)
 
-    return None
+    for item in candidates:
+        # 先尝试直接解析对象
+        parsed = _try_parse_image_candidate(item)
+        if parsed is not None:
+            return parsed
+
+        # 再尝试从对象中抽取 URL 字符串
+        image_url = _extract_image_url(item)
+        if image_url:
+            parsed = _try_parse_image_candidate(image_url)
+            if parsed is not None:
+                return parsed
+
+    content_preview = ""
+    if isinstance(content, str):
+        content_preview = content[:240].replace("\n", " ")
+
+    refusal = message.get("refusal")
+    message_keys = sorted(message.keys()) if isinstance(message, dict) else []
+    images_count = len(images) if isinstance(images, list) else 0
+
+    raise RuntimeError(
+        "OpenRouter 响应成功但未包含可解析图片。"
+        f" model={model}, message_keys={message_keys}, images_count={images_count}, "
+        f"content_type={type(content).__name__}, refusal={refusal!r}, "
+        f"content_preview={content_preview!r}"
+    )
 
 
 # ============================================================================
@@ -1198,20 +1443,89 @@ def _call_sam3_roboflow_api(
     api_key: str,
     min_score: float,
 ) -> dict:
+    def _redact_secret(text: str) -> str:
+        if not api_key:
+            return text
+        return text.replace(api_key, "***")
+
     payload = {
         "image": {"type": "base64", "value": image_base64},
         "prompts": [{"type": "text", "text": prompt}],
         "format": "polygon",
         "output_prob_thresh": min_score,
     }
-    url = f"{SAM3_ROBOFLOW_API_URL}?api_key={api_key}"
-    response = requests.post(url, json=payload, timeout=SAM3_API_TIMEOUT)
-    if response.status_code != 200:
-        raise Exception(f"SAM3 Roboflow API 错误: {response.status_code} - {response.text[:500]}")
-    result = response.json()
-    if isinstance(result, dict) and "error" in result:
-        raise Exception(f"SAM3 Roboflow API 错误: {result.get('error')}")
-    return result
+    def _is_dns_error(exc: Exception) -> bool:
+        msg = str(exc)
+        patterns = [
+            "NameResolutionError",
+            "Temporary failure in name resolution",
+            "getaddrinfo failed",
+            "nodename nor servname provided",
+            "gaierror",
+        ]
+        return any(p in msg for p in patterns)
+
+    fallback_urls_env = os.environ.get("ROBOFLOW_API_FALLBACK_URLS", "")
+    fallback_urls = [u.strip() for u in fallback_urls_env.split(",") if u.strip()]
+    endpoint_urls = [SAM3_ROBOFLOW_API_URL] + [u for u in fallback_urls if u != SAM3_ROBOFLOW_API_URL]
+
+    retry_count_env = os.environ.get("SAM3_API_RETRIES", "3")
+    retry_delay_env = os.environ.get("SAM3_API_RETRY_DELAY", "1.5")
+    try:
+        retry_count = max(1, int(retry_count_env))
+    except ValueError:
+        retry_count = 3
+    try:
+        retry_delay = max(0.0, float(retry_delay_env))
+    except ValueError:
+        retry_delay = 1.5
+
+    last_error: Optional[Exception] = None
+
+    for endpoint in endpoint_urls:
+        url = f"{endpoint}?api_key={api_key}"
+        for attempt in range(1, retry_count + 1):
+            try:
+                response = requests.post(url, json=payload, timeout=SAM3_API_TIMEOUT)
+                if response.status_code != 200:
+                    raise Exception(
+                        f"SAM3 Roboflow API 错误: {response.status_code} - {response.text[:500]}"
+                    )
+                result = response.json()
+                if isinstance(result, dict) and "error" in result:
+                    raise Exception(f"SAM3 Roboflow API 错误: {result.get('error')}")
+                return result
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                # DNS/网络偶发问题时做指数退避重试
+                if attempt < retry_count:
+                    sleep_s = retry_delay * (2 ** (attempt - 1))
+                    safe_error = _redact_secret(str(e))
+                    print(
+                        f"    Roboflow 请求失败（尝试 {attempt}/{retry_count}）：{safe_error}，"
+                        f"{sleep_s:.1f}s 后重试..."
+                    )
+                    time.sleep(sleep_s)
+                    continue
+                # 当前 endpoint 的重试次数用尽，切到下一个 endpoint
+                break
+            except Exception as e:
+                last_error = e
+                break
+
+    if last_error is not None and _is_dns_error(last_error):
+        raise RuntimeError(
+            "SAM3 Roboflow 域名解析失败（容器内 DNS 无法解析 serverless.roboflow.com）。\n"
+            "可用修复：\n"
+            "1) 在 docker-compose.yml 设置 dns（如 223.5.5.5 / 119.29.29.29）；\n"
+            "2) 在 .env 里设置 ROBOFLOW_API_URL 或 ROBOFLOW_API_FALLBACK_URLS；\n"
+            "3) 临时改用 --sam_backend fal（需 FAL_KEY）。"
+        ) from last_error
+
+    if last_error is not None:
+        raise RuntimeError(f"SAM3 Roboflow 请求失败：{_redact_secret(str(last_error))}") from last_error
+
+    raise RuntimeError("SAM3 Roboflow 请求失败：未知错误")
 
 
 def segment_with_sam3(
@@ -1474,6 +1788,43 @@ def segment_with_sam3(
 # 步骤三：裁切 + RMBG2 去背景
 # ============================================================================
 
+def _get_hf_token() -> Optional[str]:
+    token = (
+        os.environ.get("HF_TOKEN")
+        or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+        or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+        or os.environ.get("HUGGINGFACE_TOKEN")
+    )
+    if not isinstance(token, str):
+        return None
+    token = token.strip()
+    return token or None
+
+
+def _has_rmbg2_cached_weights() -> bool:
+    hf_home = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
+    snapshots_dir = hf_home / "hub" / "models--briaai--RMBG-2.0" / "snapshots"
+    if not snapshots_dir.exists():
+        return False
+    return any(snapshots_dir.glob("*/config.json"))
+
+
+def _ensure_rmbg2_access_ready(rmbg_model_path: Optional[str]) -> None:
+    if rmbg_model_path and Path(rmbg_model_path).exists():
+        return
+    if _get_hf_token() is not None:
+        return
+    if _has_rmbg2_cached_weights():
+        return
+    raise RuntimeError(
+        "步骤三需要使用 briaai/RMBG-2.0，但当前未检测到可用访问凭据。\n"
+        "请先完成：\n"
+        "1) 申请访问 https://huggingface.co/briaai/RMBG-2.0\n"
+        "2) 在 .env 设置 HF_TOKEN=你的Read权限token\n"
+        "3) 重新运行 docker compose up -d --build"
+    )
+
+
 class BriaRMBG2Remover:
     """使用 BRIA-RMBG 2.0 模型进行高质量背景抠图"""
 
@@ -1481,9 +1832,11 @@ class BriaRMBG2Remover:
         self.model_path = Path(model_path) if model_path else None
         self.output_dir = Path(output_dir) if output_dir else Path("./output/icons")
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.model_repo_id = "briaai/RMBG-2.0"
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
+        hf_token = _get_hf_token()
 
         if self.model_path and self.model_path.exists():
             print(f"加载本地 RMBG 权重: {self.model_path}")
@@ -1492,9 +1845,36 @@ class BriaRMBG2Remover:
             ).eval().to(device)
         else:
             print("从 HuggingFace 加载 RMBG-2.0 模型...")
-            self.model = AutoModelForImageSegmentation.from_pretrained(
-                "briaai/RMBG-2.0", trust_remote_code=True,
-            ).eval().to(device)
+            if hf_token:
+                print("检测到 HF_TOKEN，使用鉴权访问 gated 模型。")
+            else:
+                print("未检测到 HF_TOKEN，尝试匿名访问（gated 模型通常会失败）。")
+
+            try:
+                self.model = AutoModelForImageSegmentation.from_pretrained(
+                    self.model_repo_id,
+                    trust_remote_code=True,
+                    token=hf_token,
+                ).eval().to(device)
+            except Exception as e:
+                msg = str(e).lower()
+                is_gated = (
+                    "gated repo" in msg
+                    or "cannot access gated repo" in msg
+                    or "access to model briaai/rmbg-2.0 is restricted" in msg
+                    or "401 client error" in msg
+                    or "you are trying to access a gated repo" in msg
+                )
+                if is_gated:
+                    raise RuntimeError(
+                        "无法下载 RMBG-2.0（HuggingFace gated 模型鉴权失败）。\n"
+                        "请按以下步骤配置：\n"
+                        "1) 登录并申请模型访问权限: https://huggingface.co/briaai/RMBG-2.0\n"
+                        "2) 创建具有 Read 权限的 token\n"
+                        "3) 在项目 .env 设置 HF_TOKEN=你的token\n"
+                        "4) 重新执行: docker compose up -d --build"
+                    ) from e
+                raise
 
         self.image_size = (1024, 1024)
         self.transform_image = transforms.Compose([
@@ -1685,7 +2065,10 @@ Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do n
     )
 
     if not content:
-        raise Exception('API 响应中没有内容')
+        raise Exception(
+            f"API 响应中没有内容（provider={provider}, model={model}）。"
+            "如果是 OpenRouter，可尝试增大 OPENROUTER_MULTIMODAL_RETRIES 后重试。"
+        )
 
     svg_code = extract_svg_code(content)
 
@@ -2467,6 +2850,10 @@ def method_to_svg(
     print(f"优化迭代次数: {optimize_iterations}")
     print(f"Box合并阈值: {merge_threshold}")
     print("=" * 60)
+
+    # 预检步骤三的 RMBG-2.0 可访问性，避免步骤一/二成功后才在 gated 模型处失败
+    if stop_after >= 3:
+        _ensure_rmbg2_access_ready(rmbg_model_path)
 
     # 步骤一：生成图片
     figure_path = output_dir / "figure.png"

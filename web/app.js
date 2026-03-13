@@ -1,4 +1,6 @@
 (() => {
+  const INPUT_STATE_KEY = "autofigure_input_state_v1";
+
   const page = document.body.dataset.page;
   if (page === "input") {
     initInputPage();
@@ -18,9 +20,89 @@
     const referencePreview = $("referencePreview");
     const referenceStatus = $("referenceStatus");
     const samBackend = $("samBackend");
+    const samPrompt = $("samPrompt");
     const samApiKeyGroup = $("samApiKeyGroup");
     const samApiKeyInput = $("samApiKey");
     let uploadedReferencePath = null;
+
+    function loadInputState() {
+      try {
+        const raw = window.sessionStorage.getItem(INPUT_STATE_KEY);
+        if (!raw) {
+          return null;
+        }
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    function saveInputState() {
+      const state = {
+        methodText: $("methodText")?.value ?? "",
+        provider: $("provider")?.value ?? "gemini",
+        apiKey: $("apiKey")?.value ?? "",
+        optimizeIterations: $("optimizeIterations")?.value ?? "0",
+        samBackend: samBackend?.value ?? "roboflow",
+        samPrompt: samPrompt?.value ?? "icon,person,robot,animal",
+        samApiKey: samApiKeyInput?.value ?? "",
+        referencePath: uploadedReferencePath,
+        referenceUrl: referencePreview?.src ?? "",
+        referenceStatus: referenceStatus?.textContent ?? "",
+      };
+      try {
+        window.sessionStorage.setItem(INPUT_STATE_KEY, JSON.stringify(state));
+      } catch (_err) {
+        // Ignore storage failures (e.g. private mode / quota)
+      }
+    }
+
+    function applyInputState() {
+      const state = loadInputState();
+      if (!state) {
+        return;
+      }
+      if (typeof state.methodText === "string") {
+        $("methodText").value = state.methodText;
+      }
+      if (typeof state.provider === "string" && $("provider")) {
+        $("provider").value = state.provider;
+      }
+      if (typeof state.apiKey === "string") {
+        $("apiKey").value = state.apiKey;
+      }
+      if (typeof state.optimizeIterations === "string" && $("optimizeIterations")) {
+        $("optimizeIterations").value = state.optimizeIterations;
+      }
+      if (typeof state.samBackend === "string" && samBackend) {
+        samBackend.value = state.samBackend;
+      }
+      if (typeof state.samPrompt === "string" && samPrompt) {
+        samPrompt.value = state.samPrompt;
+      }
+      if (typeof state.samApiKey === "string" && samApiKeyInput) {
+        samApiKeyInput.value = state.samApiKey;
+      }
+      if (typeof state.referencePath === "string" && state.referencePath) {
+        uploadedReferencePath = state.referencePath;
+      }
+      if (
+        referencePreview &&
+        typeof state.referenceUrl === "string" &&
+        state.referenceUrl
+      ) {
+        referencePreview.src = state.referenceUrl;
+        referencePreview.classList.add("visible");
+      }
+      if (
+        referenceStatus &&
+        typeof state.referenceStatus === "string" &&
+        state.referenceStatus
+      ) {
+        referenceStatus.textContent = state.referenceStatus;
+      }
+    }
 
     function syncSamApiKeyVisibility() {
       const shouldShow =
@@ -32,7 +114,10 @@
       if (!shouldShow && samApiKeyInput) {
         samApiKeyInput.value = "";
       }
+      saveInputState();
     }
+
+    applyInputState();
 
     if (samBackend) {
       samBackend.addEventListener("change", syncSamApiKeyVisibility);
@@ -53,21 +138,39 @@
         uploadZone.classList.remove("dragging");
         const file = event.dataTransfer.files[0];
         if (file) {
-          const uploadedPath = await uploadReference(file, confirmBtn, referencePreview, referenceStatus);
-          if (uploadedPath) {
-            uploadedReferencePath = uploadedPath;
+          const uploadedRef = await uploadReference(file, confirmBtn, referencePreview, referenceStatus);
+          if (uploadedRef) {
+            uploadedReferencePath = uploadedRef.path;
+            saveInputState();
           }
         }
       });
       referenceFile.addEventListener("change", async () => {
         const file = referenceFile.files[0];
         if (file) {
-          const uploadedPath = await uploadReference(file, confirmBtn, referencePreview, referenceStatus);
-          if (uploadedPath) {
-            uploadedReferencePath = uploadedPath;
+          const uploadedRef = await uploadReference(file, confirmBtn, referencePreview, referenceStatus);
+          if (uploadedRef) {
+            uploadedReferencePath = uploadedRef.path;
+            saveInputState();
           }
         }
       });
+    }
+
+    const autoSaveFields = [
+      $("methodText"),
+      $("provider"),
+      $("apiKey"),
+      $("optimizeIterations"),
+      samPrompt,
+      samApiKeyInput,
+    ];
+    for (const field of autoSaveFields) {
+      if (!field) {
+        continue;
+      }
+      field.addEventListener("input", saveInputState);
+      field.addEventListener("change", saveInputState);
     }
 
     confirmBtn.addEventListener("click", async () => {
@@ -88,11 +191,13 @@
         optimize_iterations: parseInt($("optimizeIterations").value, 10),
         reference_image_path: uploadedReferencePath,
         sam_backend: $("samBackend").value,
+        sam_prompt: $("samPrompt").value.trim() || null,
         sam_api_key: $("samApiKey").value.trim() || null,
       };
       if (payload.sam_backend === "local") {
         payload.sam_api_key = null;
       }
+      saveInputState();
 
       try {
         const response = await fetch("/api/run", {
@@ -145,7 +250,11 @@
         previewEl.src = data.url || "";
         previewEl.classList.add("visible");
       }
-      return data.path || null;
+      return {
+        path: data.path || null,
+        url: data.url || "",
+        name: data.name || "",
+      };
     } catch (err) {
       statusEl.textContent = err.message || "Upload failed";
       return null;
@@ -163,6 +272,7 @@
     const artifactList = $("artifactList");
     const toggle = $("artifactToggle");
     const logToggle = $("logToggle");
+    const backToConfigBtn = $("backToConfigBtn");
     const logPanel = $("logPanel");
     const logBody = $("logBody");
     const iframe = $("svgEditorFrame");
@@ -183,6 +293,11 @@
     logToggle.addEventListener("click", () => {
       logPanel.classList.toggle("open");
     });
+    if (backToConfigBtn) {
+      backToConfigBtn.addEventListener("click", () => {
+        window.location.href = "/";
+      });
+    }
 
     let svgEditAvailable = false;
     let svgEditPath = null;

@@ -112,6 +112,108 @@ Optionally, the SVG is iteratively refined by an **LLM optimizer** to better ali
 
 ## ⚡ Quick Start
 
+### Option 0: Docker Deployment Guide (Recommended)
+
+Use Docker for a reproducible one-command setup without local Python/SAM3 installation.
+
+#### 0) Prerequisites
+
+- Docker Desktop (with Docker Compose v2)
+- Port `8000` available on host
+- HuggingFace access to `briaai/RMBG-2.0`: https://huggingface.co/briaai/RMBG-2.0
+
+#### 1) Prepare `.env`
+
+```bash
+# Linux/macOS
+cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
+```
+
+At minimum, set this in `.env`:
+
+```bash
+HF_TOKEN=hf_xxx
+```
+
+Optional but recommended:
+
+```bash
+# SAM3 API backend (Docker default in UI is Roboflow)
+ROBOFLOW_API_KEY=your_roboflow_key
+
+# Step-4 multimodal retry tuning (OpenRouter)
+OPENROUTER_MULTIMODAL_RETRIES=3
+OPENROUTER_MULTIMODAL_RETRY_DELAY=1.5
+
+# DNS override for Roboflow name-resolution issues
+DOCKER_DNS_1=223.5.5.5
+DOCKER_DNS_2=119.29.29.29
+```
+
+For restricted networks, you can also set build mirrors:
+
+```bash
+BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+PIP_EXTRA_INDEX_URL=
+```
+
+#### 2) Build and start
+
+```bash
+docker compose up -d --build
+```
+
+Open `http://localhost:8000`.
+
+#### 3) Verify service health
+
+```bash
+docker compose ps
+curl http://localhost:8000/healthz
+```
+
+Expected health response: `{"status":"ok"}`.
+
+#### 4) Daily operations
+
+```bash
+# Stream logs
+docker compose logs -f autofigure-edit
+
+# Restart service
+docker compose restart autofigure-edit
+
+# Rebuild from scratch (no cache)
+docker compose build --no-cache
+docker compose up -d
+
+# Stop and remove container
+docker compose down
+```
+
+#### 5) Persistence and defaults
+
+- Persistent outputs: `./outputs`, `./uploads`
+- Persistent HuggingFace cache: Docker volume `hf_cache` (`/app/.cache/huggingface`)
+- Docker/Web default SAM backend: `roboflow`
+- Default SAM prompt: `icon,person,robot,animal`
+- Current default models:
+  - `openrouter`: image `google/gemini-3-pro-image-preview`, svg `google/gemini-3.1-pro-preview`
+  - `bianxie`: image `gemini-3-pro-image-preview`, svg `gemini-3.1-pro-preview`
+  - `gemini`: image `gemini-3-pro-image-preview`, svg `gemini-3.1-pro`
+
+#### 6) Common Docker networking issues
+
+- `Temporary failure in name resolution` (Roboflow): set `DOCKER_DNS_1/2` in `.env`, then `docker compose up -d --build`.
+- Cannot reach Docker Hub auth (`auth.docker.io`): set `BASE_IMAGE` and `PIP_INDEX_URL` mirrors in `.env`.
+- Optional Roboflow endpoint override:
+  - `ROBOFLOW_API_URL=<your_reachable_roboflow_endpoint>`
+  - `ROBOFLOW_API_FALLBACK_URLS=<comma_separated_backup_endpoints>`
+
 ### Option 1: CLI
 
 ```bash

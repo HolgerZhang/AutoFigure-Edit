@@ -50,10 +50,21 @@
           <div class="field-group">
             <label class="field-label" for="samBackend">SAM3 Backend</label>
             <select id="samBackend" class="input">
-              <option value="local" selected>Local (SAM3)</option>
+              <option value="roboflow" selected>Roboflow API</option>
               <option value="fal">fal.ai API</option>
-              <option value="roboflow">Roboflow API</option>
+              <option value="local">Local (SAM3)</option>
             </select>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="samPrompt">SAM Prompt</label>
+            <input
+              id="samPrompt"
+              type="text"
+              class="input"
+              value="icon,person,robot,animal"
+              placeholder="icon,person,robot,animal"
+            />
           </div>
 
           <div class="field-group" id="samApiKeyGroup" hidden>
