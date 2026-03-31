@@ -1811,10 +1811,23 @@ def _get_hf_token() -> Optional[str]:
 
 def _has_rmbg2_cached_weights() -> bool:
     hf_home = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
-    snapshots_dir = hf_home / "hub" / "models--briaai--RMBG-2.0" / "snapshots"
-    if not snapshots_dir.exists():
+    models_hub_dir = hf_home / "hub"
+    if not models_hub_dir.exists():
         return False
-    return any(snapshots_dir.glob("*/config.json"))
+
+    # HuggingFace cache folder name depends on repo_id (owner/model), so we scan
+    # both potential repo caches and do a lightweight check for snapshot config.json.
+    for snapshots_dir in models_hub_dir.glob("models--*/snapshots"):
+        snapshots_dir_str = str(snapshots_dir).lower()
+        if "rmbg-2.0" not in snapshots_dir_str:
+            continue
+        # Only treat caches that look like the expected RMBG variants.
+        if not ("aero-ex" in snapshots_dir_str or "briaai" in snapshots_dir_str):
+            continue
+        if any(snapshots_dir.glob("*/config.json")):
+            return True
+
+    return False
 
 
 def _ensure_rmbg2_access_ready(rmbg_model_path: Optional[str]) -> None:
@@ -1840,7 +1853,7 @@ class BriaRMBG2Remover:
         self.model_path = Path(model_path) if model_path else None
         self.output_dir = Path(output_dir) if output_dir else Path("./output/icons")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.model_repo_id = "briaai/RMBG-2.0"
+        self.model_repo_id = "Aero-Ex/RMBG-2.0"
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device

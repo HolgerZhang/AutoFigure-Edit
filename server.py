@@ -156,8 +156,11 @@ def run_job(req: RunRequest) -> JSONResponse:
     cmd += ["--sam_prompt", sam_prompt]
     cmd += ["--placeholder_mode", placeholder_mode]
     cmd += ["--merge_threshold", str(merge_threshold)]
-    if req.sam_backend:
-        cmd += ["--sam_backend", req.sam_backend]
+    # If caller doesn't specify SAM backend, fall back to env default.
+    # This helps deployments avoid local SAM and use Roboflow/FAL instead.
+    sam_backend = req.sam_backend or os.environ.get("SAM_BACKEND_DEFAULT")
+    if sam_backend:
+        cmd += ["--sam_backend", sam_backend]
     if req.sam_api_key:
         cmd += ["--sam_api_key", req.sam_api_key]
     if req.sam_max_masks is not None:

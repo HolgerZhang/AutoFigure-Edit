@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autofigure-edit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autofigure-edit
+  template:
+    metadata:
+      labels:
+        app: autofigure-edit
+    spec:
+      containers:
+        - name: autofigure
+          image: autofigure-edit:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Use HuggingFace mirror endpoint (no HF_TOKEN).
+            - name: HF_ENDPOINT
+              value: "https://hf-mirror.com"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: OPENROUTER_MULTIMODAL_RETRIES
+              value: "3"
+            - name: OPENROUTER_MULTIMODAL_RETRY_DELAY
+              value: "1.5"
+            # Enforce non-local SAM backend by default.
+            - name: SAM_BACKEND_DEFAULT
+              value: "roboflow"
+            # Roboflow API key (provided via Secret).
+            - name: ROBOFLOW_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: autofigure-roboflow
+                  key: ROBOFLOW_API_KEY
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: outputs
+              mountPath: /app/outputs
+            - name: uploads
+              mountPath: /app/uploads
+            - name: hf-cache
+              mountPath: /app/.cache/huggingface
+      volumes:
+        # Persistent on the host at /nas/autofigure/, including RMBG model cache.
+        - name: outputs
+          hostPath:
+            path: /nas/autofigure/outputs
+            type: DirectoryOrCreate
+        - name: uploads
+          hostPath:
+            path: /nas/autofigure/uploads
+            type: DirectoryOrCreate
+        - name: hf-cache
+          hostPath:
+            path: /nas/autofigure/hf-cache
+            type: DirectoryOrCreate
