@@ -24,13 +24,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
-ARG PIP_INDEX_URL=https://pypi.org/simple
-ARG PIP_EXTRA_INDEX_URL=
-RUN pip install --upgrade pip \
-    && if [ -n "$PIP_EXTRA_INDEX_URL" ]; then \
-         pip install -r /app/requirements.txt --index-url "$PIP_INDEX_URL" --extra-index-url "$PIP_EXTRA_INDEX_URL"; \
+ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG UV_EXTRA_INDEX_URL=
+RUN pip install --upgrade pip uv \
+    && if [ -n "$UV_EXTRA_INDEX_URL" ]; then \
+         uv pip install --system -r /app/requirements.txt --index-url "$UV_INDEX_URL" --extra-index-url "$UV_EXTRA_INDEX_URL"; \
        else \
-         pip install -r /app/requirements.txt --index-url "$PIP_INDEX_URL"; \
+         uv pip install --system -r /app/requirements.txt --index-url "$UV_INDEX_URL"; \
        fi
 
 COPY . /app

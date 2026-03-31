@@ -159,8 +159,8 @@ For restricted networks, you can also set build mirrors:
 
 ```bash
 BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-PIP_EXTRA_INDEX_URL=
+UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+UV_EXTRA_INDEX_URL=
 ```
 
 #### 2) Build and start
@@ -211,7 +211,7 @@ docker compose down
 #### 6) Common Docker networking issues
 
 - `Temporary failure in name resolution` (Roboflow): set `DOCKER_DNS_1/2` in `.env`, then `docker compose up -d --build`.
-- Cannot reach Docker Hub auth (`auth.docker.io`): set `BASE_IMAGE` and `PIP_INDEX_URL` mirrors in `.env`.
+- Cannot reach Docker Hub auth (`auth.docker.io`): set `BASE_IMAGE` and `UV_INDEX_URL` mirrors in `.env`.
 - Optional Roboflow endpoint override:
   - `ROBOFLOW_API_URL=<your_reachable_roboflow_endpoint>`
   - `ROBOFLOW_API_FALLBACK_URLS=<comma_separated_backup_endpoints>`
@@ -220,12 +220,12 @@ docker compose down
 
 ```bash
 # 1) Install dependencies
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
 # 2) Install SAM3 separately (not vendored in this repo)
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
-pip install -e .
+uv pip install -e .
 ```
 
 **Run:**

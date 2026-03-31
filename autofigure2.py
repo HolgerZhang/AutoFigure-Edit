@@ -790,7 +790,7 @@ def _get_gemini_client(api_key: str):
         from google import genai
     except ImportError as e:
         raise ImportError(
-            "未安装 google-genai，请执行: pip install google-genai"
+            "未安装 google-genai，请执行: uv pip install google-genai"
         ) from e
     return genai.Client(api_key=api_key)
 

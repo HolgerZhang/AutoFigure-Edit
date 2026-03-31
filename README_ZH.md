@@ -152,8 +152,8 @@ DOCKER_DNS_2=119.29.29.29
 
 ```bash
 BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-PIP_EXTRA_INDEX_URL=
+UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+UV_EXTRA_INDEX_URL=
 ```
 
 #### 2）构建并启动
@@ -204,7 +204,7 @@ docker compose down
 #### 6）常见 Docker 网络问题
 
 - 报错 `Temporary failure in name resolution`（Roboflow）：设置 `.env` 中 `DOCKER_DNS_1/2`，然后重新 `docker compose up -d --build`。
-- 无法访问 Docker Hub 鉴权（`auth.docker.io`）：在 `.env` 中设置 `BASE_IMAGE` 和 `PIP_INDEX_URL` 镜像源。
+- 无法访问 Docker Hub 鉴权（`auth.docker.io`）：在 `.env` 中设置 `BASE_IMAGE` 和 `UV_INDEX_URL` 镜像源。
 - 可选的 Roboflow 自定义地址：
   - `ROBOFLOW_API_URL=<your_reachable_roboflow_endpoint>`
   - `ROBOFLOW_API_FALLBACK_URLS=<comma_separated_backup_endpoints>`
@@ -213,12 +213,12 @@ docker compose down
 
 ```bash
 # 1) 安装依赖
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
 # 2) 单独安装 SAM3 (本项目未包含)
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
-pip install -e .
+uv pip install -e .
 ```
 
 **运行:**
