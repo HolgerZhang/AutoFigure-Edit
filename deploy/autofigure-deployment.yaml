@@ -12,6 +12,19 @@ spec:
       labels:
         app: autofigure-edit
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: holgercloud/himem
+                    operator: Exists
       containers:
         - name: autofigure
           image: autofigure-edit:latest
