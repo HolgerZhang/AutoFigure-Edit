@@ -2,7 +2,7 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-autofigure}"
-IMAGE="${IMAGE:-registry.cn-shanghai.aliyuncs.com/holgercloud/autofigure-edit:v1.0.0}"
+IMAGE="${IMAGE:-registry.cn-shanghai.aliyuncs.com/holgercloud/autofigure-edit:v1.1.0}"
 
 : "${ROBOFLOW_API_KEY:?ROBOFLOW_API_KEY is required}"
 
