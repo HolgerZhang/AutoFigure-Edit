@@ -27,7 +27,7 @@ spec:
                     operator: Exists
       containers:
         - name: autofigure
-          image: autofigure-edit:latest
+          image: registry.cn-shanghai.aliyuncs.com/holgercloud/autofigure-edit:v1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
