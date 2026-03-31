@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 import sys
+from io import BytesIO
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,12 +30,14 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR = BASE_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+PRESET_DIR = BASE_DIR / "img" / "demo-img"
 
 PYTHON_EXECUTABLE = os.environ.get("AUTOFIGURE_PYTHON") or sys.executable
 
 DEFAULT_SAM_PROMPT = "icon,person,robot,animal"
 DEFAULT_PLACEHOLDER_MODE = "label"
 DEFAULT_MERGE_THRESHOLD = 0.01
+ALLOWED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 
 SVG_EDIT_CANDIDATES = [
     ("vendor/svg-edit/editor/index.html", WEB_DIR / "vendor" / "svg-edit" / "editor" / "index.html"),
@@ -219,7 +223,7 @@ async def upload_reference(file: UploadFile = File(...)) -> JSONResponse:
         raise HTTPException(status_code=400, detail="File must be an image")
 
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}:
+    if ext not in ALLOWED_IMAGE_EXTS:
         ext = ".png"
 
     data = await file.read()
@@ -234,6 +238,81 @@ async def upload_reference(file: UploadFile = File(...)) -> JSONResponse:
     return JSONResponse(
         {"path": rel_path, "url": f"/api/uploads/{name}", "name": file.filename}
     )
+
+
+@app.post("/api/parse-pdf")
+async def parse_pdf(file: UploadFile = File(...)) -> JSONResponse:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    data = await file.read()
+    if len(data) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF file too large")
+
+    try:
+        reader = PdfReader(BytesIO(data))
+    except Exception as exc:  # pragma: no cover - defensive for malformed PDFs
+        raise HTTPException(status_code=400, detail=f"Failed to read PDF: {exc}") from exc
+
+    chunks: list[str] = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        text = text.strip()
+        if text:
+            chunks.append(text)
+
+    merged = "\n\n".join(chunks).strip()
+    if not merged:
+        raise HTTPException(
+            status_code=400,
+            detail="No extractable text found in PDF (might be scanned images)",
+        )
+
+    return JSONResponse(
+        {
+            "name": file.filename,
+            "text": merged,
+            "char_count": len(merged),
+            "page_count": len(reader.pages),
+        }
+    )
+
+
+@app.get("/api/presets")
+def list_presets() -> JSONResponse:
+    if not PRESET_DIR.is_dir():
+        return JSONResponse({"presets": []})
+
+    presets: list[dict[str, str]] = []
+    for path in sorted(PRESET_DIR.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in ALLOWED_IMAGE_EXTS:
+            continue
+        rel_path = path.relative_to(BASE_DIR).as_posix()
+        presets.append(
+            {
+                "id": path.stem,
+                "name": path.stem,
+                "path": rel_path,
+                "url": f"/api/presets/{path.name}",
+            }
+        )
+    return JSONResponse({"presets": presets})
+
+
+@app.get("/api/presets/{filename}")
+def get_preset_image(filename: str) -> FileResponse:
+    candidate = (PRESET_DIR / filename).resolve()
+    if not str(candidate).startswith(str(PRESET_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    if candidate.suffix.lower() not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail="Unsupported preset image")
+    return FileResponse(candidate)
 
 
 @app.get("/api/events/{job_id}")

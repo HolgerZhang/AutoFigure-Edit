@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AutoFigure-Edit</title>
+    <title>论文方法图生成工具 (AutoFigure-Edit)</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -11,73 +11,123 @@
     <div class="page">
       <header class="topbar">
         <div>
-          <div class="brand">AutoFigure-Edit</div>
-          <div class="subtitle">Generate SVG templates and preview every step.</div>
+          <div class="brand">论文方法图生成工具</div>
+          <div class="subtitle">Generate SVG templates and preview every step. Powered by <a href="https://github.com/ResearAI/AutoFigure" target="_blank" rel="noreferrer">AutoFigure-Edit</a>.</div>
         </div>
       </header>
 
       <main class="input-layout">
         <section class="card">
-          <label class="field-label" for="methodText">Method Text</label>
+          <label class="field-label" for="methodText">Input Text</label>
+          <div class="hint">提示：建议只填写论文的方法部分。文本越简洁、结构越清晰，生成的模板就越整齐，也更容易编辑。</div>
+
+          <div class="pdf-card">
+            <div class="pdf-card-title">Parse Text from PDF</div>
+            <div class="pdf-card-subtitle">
+              目前仅支持解析 PDF 文件的 <b>文本</b>，<b>不支持解析图片</b>，解析完成后会清除现有输入框内容！<br/>
+              <b>特别提醒：</b>请对解析后的文本进行进一步整理，确保文本结构清晰、简洁明了，不要包含不必要的描述。
+            </div>
+            <div class="pdf-upload-row">
+              <input id="pdfFile" type="file" accept="application/pdf" hidden />
+              <button id="pdfUploadBtn" class="ghost" type="button">Upload PDF</button>
+              <span id="pdfStatus" class="pdf-status">尚未选择 PDF 文件...</span>
+            </div>
+          </div>
+
           <textarea
             id="methodText"
             class="textarea"
+            style="margin-top: 16px;"
             placeholder="Paste your paper method text here..."
           ></textarea>
-          <div class="hint">Tip: concise, structured method text yields cleaner templates.</div>
+          
         </section>
 
         <section class="card">
-          <div class="field-group">
-            <label class="field-label" for="provider">Provider</label>
-            <select id="provider" class="input">
-              <option value="bianxie">Bianxie</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="gemini" selected>Gemini (Google)</option>
-            </select>
+          <input id="provider" type="hidden" value="openrouter" />
+          <div class="top-tip">
+            <div class="help-card">
+              <div class="help-card-title">模型配置 API Key 帮助</div>
+              <div class="help-card-desc">
+                <b>推荐使用 OpenRouter</b>。需要填写API Key，请使用 OpenRouter 控制台创建的 Key，仅粘贴原始 key，不要带
+                <code>Bearer</code> 前缀。
+              </div>
+              <div class="help-card-actions">
+                <a
+                  class="help-pill"
+                  href="https://openrouter.ai/docs/api/reference/authentication"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                OpenRouter API Key 获取（建议使用 Gemini）
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label class="field-label" for="imageModel">Image model</label>
+              <div class="hint">图像生成模型，建议使用 Nano Banana Pro</div>
+              <input
+                id="imageModel"
+                type="text"
+                class="input"
+                value="google/gemini-3-pro-image-preview"
+              />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="svgModel">SVG model</label>
+              <div class="hint">多模态模型，建议使用 Gemini 3.1 Pro Preview</div>
+              <input
+                id="svgModel"
+                type="text"
+                class="input"
+                value="google/gemini-3.1-pro-preview"
+              />
+            </div>
           </div>
 
           <div class="field-group">
-            <label class="field-label" for="apiKey">API Key</label>
-            <input id="apiKey" type="password" class="input" placeholder="sk-..." />
+            <label class="field-label" for="baseUrl">Base URL</label>
+            <input id="baseUrl" type="text" class="input" value="https://openrouter.ai/api/v1" />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="apiKey">Your API key</label>
+            <input
+              id="apiKey"
+              type="password"
+              class="input"
+              placeholder="Paste your key to run with your own quota"
+            />
           </div>
 
           <div class="field-group">
             <label class="field-label" for="optimizeIterations">Optimize</label>
+            <div class="hint">优化迭代次数：0 表示不做优化；数值越大，系统会进行越多轮改进，但耗时与成本也会增加。</div>
             <input id="optimizeIterations" class="input" type="number" min="0" value="0" />
-          </div>
-
-          <div class="field-group" id="imageSizeGroup">
-            <label class="field-label" for="imageSize">Image Size</label>
-            <select id="imageSize" class="input">
-              <option value="1K">1K</option>
-              <option value="2K">2K</option>
-              <option value="4K" selected>4K</option>
-            </select>
           </div>
 
           <div class="field-group">
             <label class="field-label" for="samBackend">SAM3 Backend</label>
             <select id="samBackend" class="input">
-              <option value="roboflow" selected>Roboflow API</option>
+              <option value="roboflow" selected>Roboflow API (Suggested, Free)</option>
               <option value="fal">fal.ai API</option>
-              <option value="local">Local (SAM3)</option>
+              <!-- <option value="local">Local (SAM3)</option> -->
             </select>
+            <div class="hint">
+              <a href="https://huggingface.co/facebook/sam3" target="_blank" rel="noreferrer">SAM3</a> 用于图中目标分割（自动抠图/提取图标）。需要填写 SAM3 服务 Key（Roboflow 或 fal.ai），建议优先使用 Roboflow（免费）。
+            </div>
           </div>
 
-          <div class="field-group">
-            <label class="field-label" for="samPrompt">SAM Prompt</label>
-            <input
-              id="samPrompt"
-              type="text"
-              class="input"
-              value="icon,person,robot,animal"
-              placeholder="icon,person,robot,animal"
-            />
-          </div>
-
-          <div class="field-group" id="samApiKeyGroup" hidden>
+          <div class="field-group" id="samApiKeyGroup" hidden>  
             <label class="field-label" for="samApiKey">SAM3 API Key</label>
+            <div class="hint">
+              <a href="https://docs.roboflow.com/developer/authentication/find-your-roboflow-api-key" target="_blank" rel="noreferrer">Roboflow Key 获取</a>
+              /
+              <a href="https://fal.ai/docs/documentation/setting-up/authentication" target="_blank" rel="noreferrer">fal.ai Key 获取</a>
+            </div>
             <input
               id="samApiKey"
               type="password"
@@ -87,20 +137,48 @@
           </div>
 
           <div class="field-group">
+            <label class="field-label" for="samPrompt">SAM3 Prompt</label>
+            <div class="hint">告诉 SAM3 优先识别哪些对象，多个关键词用英文逗号分隔（如 <code>icon,person,robot,animal</code>）。</div>
+            <input
+              id="samPrompt"
+              type="text"
+              class="input"
+              value="icon,person,robot,animal"
+              placeholder="icon,person,robot,animal"
+            />
+          </div>
+
+          <div class="field-group">
             <label class="field-label" for="referenceFile">Reference Image</label>
+            <div class="hint">上传一张图片，系统会按这张图片的风格来生成图。</div>
             <div class="upload-zone" id="uploadZone">
               <input id="referenceFile" class="file-input" type="file" accept="image/*" />
-              <div class="upload-text">Drop image here or click to upload</div>
+              <div class="upload-text">拖动图片到这里，或者点击上传</div>
             </div>
             <div class="upload-meta">
-              <img id="referencePreview" class="upload-preview" alt="Reference preview" />
+              <a
+                id="referencePreviewLink"
+                class="upload-preview-link"
+                href="#"
+                target="_blank"
+                rel="noreferrer"
+                title="Open reference image in new tab"
+              >
+                <img id="referencePreview" class="upload-preview" alt="Reference preview" />
+              </a>
               <div id="referenceStatus" class="hint"></div>
             </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Preset Styles</label>
+            <div class="hint">或者，从下面选一个你喜欢的风格，系统会按这个风格来生成图。</div>
+            <div id="presetGrid" class="preset-grid"></div>
           </div>
         </section>
 
         <section class="actions">
-          <button id="confirmBtn" class="primary">Confirm -> Canvas</button>
+          <button id="confirmBtn" class="primary">提交生成 Canvas</button>
           <div id="errorMsg" class="error"></div>
         </section>
       </main>

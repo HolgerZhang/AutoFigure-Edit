@@ -26,6 +26,7 @@ lxml>=4.9
 cairosvg>=2.7
 svglib>=1.5
 reportlab>=4.0
+pypdf>=4.0,<6.0
 
 # NOTE:
 # SAM3 is used in local backend mode but is installed separately:

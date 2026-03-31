@@ -1837,13 +1837,9 @@ def _ensure_rmbg2_access_ready(rmbg_model_path: Optional[str]) -> None:
         return
     if _has_rmbg2_cached_weights():
         return
-    raise RuntimeError(
-        "步骤三需要使用 briaai/RMBG-2.0，但当前未检测到可用访问凭据。\n"
-        "请先完成：\n"
-        "1) 申请访问 https://huggingface.co/briaai/RMBG-2.0\n"
-        "2) 在 .env 设置 HF_TOKEN=你的Read权限token\n"
-        "3) 重新运行 docker compose up -d --build"
-    )
+    # Do not hard-fail here. Aero-Ex/RMBG-2.0 can be fetched anonymously
+    # in many environments (especially with HF_ENDPOINT mirror).
+    print("提示: 未检测到本地 RMBG 缓存和 HF_TOKEN，将尝试匿名下载 Aero-Ex/RMBG-2.0。")
 
 
 class BriaRMBG2Remover:
@@ -1867,9 +1863,9 @@ class BriaRMBG2Remover:
         else:
             print("从 HuggingFace 加载 RMBG-2.0 模型...")
             if hf_token:
-                print("检测到 HF_TOKEN，使用鉴权访问 gated 模型。")
+                print("检测到 HF_TOKEN，使用鉴权访问模型。")
             else:
-                print("未检测到 HF_TOKEN，尝试匿名访问（gated 模型通常会失败）。")
+                print("未检测到 HF_TOKEN，尝试匿名访问 Aero-Ex/RMBG-2.0。")
 
             try:
                 self.model = AutoModelForImageSegmentation.from_pretrained(
@@ -1888,12 +1884,11 @@ class BriaRMBG2Remover:
                 )
                 if is_gated:
                     raise RuntimeError(
-                        "无法下载 RMBG-2.0（HuggingFace gated 模型鉴权失败）。\n"
-                        "请按以下步骤配置：\n"
-                        "1) 登录并申请模型访问权限: https://huggingface.co/briaai/RMBG-2.0\n"
-                        "2) 创建具有 Read 权限的 token\n"
-                        "3) 在项目 .env 设置 HF_TOKEN=你的token\n"
-                        "4) 重新执行: docker compose up -d --build"
+                        "无法下载 RMBG-2.0。当前配置优先使用 Aero-Ex/RMBG-2.0（支持匿名访问）。\n"
+                        "请先检查：\n"
+                        "1) 网络与 HF_ENDPOINT（例如 https://hf-mirror.com）是否可达\n"
+                        "2) /app/.cache/huggingface 挂载目录是否可写\n"
+                        "3) 若你改成了 gated 仓库，再配置 HF_TOKEN"
                     ) from e
                 raise
 

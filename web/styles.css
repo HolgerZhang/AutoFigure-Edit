@@ -41,6 +41,10 @@ body::before {
   z-index: -1;
 }
 
+a {
+  color: var(--muted);
+}
+
 .page,
 .canvas-page {
   min-height: 100vh;
@@ -53,6 +57,10 @@ body::before {
   align-items: flex-end;
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.top-tip {
+  margin-bottom: 18px;
 }
 
 .topbar-actions {
@@ -123,7 +131,8 @@ body::before {
 
 .textarea {
   width: 100%;
-  min-height: 320px;
+  min-height: clamp(460px, 62vh, 760px);
+  max-height: 760px;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: #fff;
@@ -131,10 +140,62 @@ body::before {
   font-size: 15px;
   line-height: 1.5;
   resize: vertical;
+  overflow: auto;
 }
 
 .field-group {
   margin-bottom: 16px;
+}
+
+.help-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 14px 16px;
+}
+
+.help-card-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.help-card-desc {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.help-card-desc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  background: rgba(31, 27, 26, 0.06);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+
+.help-card-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.help-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.help-pill:hover {
+  border-color: rgba(15, 111, 111, 0.35);
 }
 
 .field-row {
@@ -205,6 +266,15 @@ select {
   margin-top: 10px;
 }
 
+.upload-preview-link {
+  display: none;
+  line-height: 0;
+}
+
+.upload-preview-link.visible {
+  display: inline-block;
+}
+
 .upload-preview {
   width: 64px;
   height: 64px;
@@ -219,10 +289,117 @@ select {
   display: block;
 }
 
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.preset-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.preset-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 111, 111, 0.35);
+}
+
+.preset-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 8px 18px rgba(22, 155, 155, 0.18);
+}
+
+.preset-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(31, 27, 26, 0.08);
+  background: #f6f6f6;
+}
+
+.preset-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preset-title-row {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preset-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #c44536;
+  background: rgba(196, 69, 54, 0.1);
+  border: 1px solid rgba(196, 69, 54, 0.18);
+  flex-shrink: 0;
+}
+
+.preset-description {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .hint {
   color: var(--muted);
   font-size: 12px;
-  margin-top: 8px;
+  margin: 8px 0;
+}
+
+.pdf-card {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.pdf-card-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pdf-card-subtitle {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pdf-upload-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pdf-status {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .is-hidden {
@@ -269,7 +446,7 @@ select {
 
 .canvas-shell {
   height: 100%;
-  border-radius: 24px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: #fff;
   overflow: hidden;
@@ -478,7 +655,17 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .canvas-stage {
     height: calc(100vh - 180px);
+  }
+}
+
+@media (max-width: 560px) {
+  .preset-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,5 +1,5 @@
 import { __vitePreload } from "../_virtual/preload-helper.js";
-import { fileOpen as n, fileSave as o } from "../node_modules/browser-fs-access/dist/index.modern.js";
+import { fileOpen as n, fileSave as o } from "../ext-browser-fs-access/index.modern.js";
 function __variableDynamicImportRuntime0__(path) {
   switch (path) {
     case "./locale/en.js":
