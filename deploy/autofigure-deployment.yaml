@@ -74,6 +74,9 @@ spec:
               mountPath: /app/uploads
             - name: hf-cache
               mountPath: /app/.cache/huggingface
+            - name: presets
+              mountPath: /app/img/demo-img
+              readOnly: true
       volumes:
         # Persistent on the host at /nas/autofigure/, including RMBG model cache.
         - name: outputs
@@ -87,4 +90,8 @@ spec:
         - name: hf-cache
           hostPath:
             path: /nas/autofigure/hf-cache
+            type: DirectoryOrCreate
+        - name: presets
+          hostPath:
+            path: /nas/autofigure/presets
             type: DirectoryOrCreate
